@@ -100,11 +100,18 @@ const TopBar = (props: TopBarProps) => {
     setBrightness: state.setBrightness
   }));
 
+  const toggleMenu = (key: keyof Omit<TopBarState, "date">) => {
+    setState((previousState) => ({
+      ...previousState,
+      [key]: !previousState[key]
+    }));
+  };
+
   useInterval(() => {
-    setState({
-      ...state,
+    setState((previousState) => ({
+      ...previousState,
       date: new Date()
-    });
+    }));
   }, 60 * 1000);
 
   useEffect(() => {
@@ -127,24 +134,15 @@ const TopBar = (props: TopBarProps) => {
   };
 
   const toggleControlCenter = (): void => {
-    setState({
-      ...state,
-      showControlCenter: !state.showControlCenter
-    });
+    toggleMenu("showControlCenter");
   };
 
   const toggleAppleMenu = (): void => {
-    setState({
-      ...state,
-      showAppleMenu: !state.showAppleMenu
-    });
+    toggleMenu("showAppleMenu");
   };
 
   const toggleWifiMenu = (): void => {
-    setState({
-      ...state,
-      showWifiMenu: !state.showWifiMenu
-    });
+    toggleMenu("showWifiMenu");
   };
 
   const logout = (): void => {
@@ -185,7 +183,9 @@ const TopBar = (props: TopBarProps) => {
         <TopBarItem
           className="font-semibold px-2"
           onMouseEnter={() => {
-            if (state.showAppleMenu) toggleAppleMenu();
+            if (state.showAppleMenu) {
+              toggleAppleMenu();
+            }
           }}
         >
           {props.title}

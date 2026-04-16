@@ -122,11 +122,11 @@ const Window = (props: WindowProps) => {
   });
 
   useEffect(() => {
-    setState({
-      ...state,
-      width: Math.min(winWidth, state.width),
-      height: Math.min(winHeight, state.height)
-    });
+    setState((previousState) => ({
+      ...previousState,
+      width: Math.min(winWidth, previousState.width),
+      height: Math.min(winHeight, previousState.height)
+    }));
   }, [winWidth, winHeight]);
 
   const round = props.max ? "rounded-none" : "rounded-lg";
@@ -169,15 +169,19 @@ const Window = (props: WindowProps) => {
             )
       }}
       onDragStop={(e, d) => {
-        setState({ ...state, x: d.x, y: d.y });
+        setState((previousState) => ({
+          ...previousState,
+          x: d.x,
+          y: d.y
+        }));
       }}
       onResizeStop={(e, direction, ref, delta, position) => {
-        setState({
-          ...state,
+        setState((previousState) => ({
+          ...previousState,
           width: parseInt(ref.style.width),
           height: parseInt(ref.style.height),
           ...position
-        });
+        }));
       }}
       minWidth={props.minWidth ? props.minWidth : 200}
       minHeight={props.minHeight ? props.minHeight : 150}

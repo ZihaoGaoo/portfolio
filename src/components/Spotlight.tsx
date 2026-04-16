@@ -26,7 +26,7 @@ interface SpotlightProps {
   toggleSpotlight: () => void;
   openApp: (id: string) => void;
   toggleLaunchpad: (target: boolean) => void;
-  btnRef: React.RefObject<HTMLDivElement | null>;
+  btnRef: React.RefObject<HTMLDivElement | null> | null;
 }
 
 export default function Spotlight({
@@ -52,7 +52,7 @@ export default function Spotlight({
   const textBlack = "text-c-black";
   const textSelected = "bg-blue-500";
 
-  useClickOutside(spotlightRef, toggleSpotlight, [btnRef]);
+  useClickOutside(spotlightRef, toggleSpotlight, btnRef ? [btnRef] : []);
 
   useEffect(() => {
     updateAppList();

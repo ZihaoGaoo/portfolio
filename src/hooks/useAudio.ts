@@ -10,9 +10,18 @@ export interface HTMLAudioProps {
   autoReplay?: boolean;
 }
 
+const createAudioElement = (src: string) => {
+  const audio = new Audio(src);
+  audio.src = src;
+  return audio;
+};
+
 export function useAudio(props: HTMLAudioProps) {
-  const element = new Audio(props.src);
-  const ref = useRef<HTMLAudioElement>(element);
+  const ref = useRef<HTMLAudioElement | null>(null);
+
+  if (!ref.current) {
+    ref.current = createAudioElement(props.src);
+  }
 
   const [state, setState] = useState<HTMLAudioState>({
     volume: 1,
@@ -23,7 +32,10 @@ export function useAudio(props: HTMLAudioProps) {
     play: (): Promise<void> | void => {
       const el = ref.current;
       if (el) {
-        setState({ ...state, playing: true });
+        setState((previousState) => ({
+          ...previousState,
+          playing: true
+        }));
         return el.play();
       }
     },
@@ -31,7 +43,10 @@ export function useAudio(props: HTMLAudioProps) {
     pause: (): Promise<void> | void => {
       const el = ref.current;
       if (el) {
-        setState({ ...state, playing: false });
+        setState((previousState) => ({
+          ...previousState,
+          playing: false
+        }));
         return el.pause();
       }
     },
@@ -39,8 +54,14 @@ export function useAudio(props: HTMLAudioProps) {
     toggle: (): Promise<void> | void => {
       const el = ref.current;
       if (el) {
-        const promise = state.playing ? el.pause() : el.play();
-        setState({ ...state, playing: !state.playing });
+        const nextPlaying = el.paused;
+        const promise = nextPlaying ? el.play() : el.pause();
+
+        setState((previousState) => ({
+          ...previousState,
+          playing: nextPlaying
+        }));
+
         return promise;
       }
     },
@@ -50,14 +71,33 @@ export function useAudio(props: HTMLAudioProps) {
       if (el) {
         value = Math.min(1, Math.max(0, value));
         el.volume = value;
-        setState({ ...state, volume: value });
+        setState((previousState) => ({
+          ...previousState,
+          volume: value
+        }));
       }
     }
   };
 
   useEffect(() => {
+    const element = ref.current;
+
+    if (!element) return undefined;
+
     const handler = () => {
-      if (props.autoReplay) controls.play();
+      if (props.autoReplay) {
+        void element.play();
+        setState((previousState) => ({
+          ...previousState,
+          playing: true
+        }));
+        return;
+      }
+
+      setState((previousState) => ({
+        ...previousState,
+        playing: false
+      }));
     };
 
     element.addEventListener("ended", handler);
@@ -67,9 +107,13 @@ export function useAudio(props: HTMLAudioProps) {
   }, [props.autoReplay]);
 
   useEffect(() => {
-    const el = ref.current!;
+    const el = ref.current;
 
     if (!el) return;
+
+    if (el.src !== new URL(props.src, window.location.href).toString()) {
+      el.src = props.src;
+    }
 
     setState({
       volume: el.volume,
@@ -77,5 +121,5 @@ export function useAudio(props: HTMLAudioProps) {
     });
   }, [props.src]);
 
-  return [element, state, controls, ref] as const;
+  return [ref.current, state, controls, ref] as const;
 }
