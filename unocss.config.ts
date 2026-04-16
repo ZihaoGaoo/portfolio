@@ -7,6 +7,30 @@ import {
   transformerVariantGroup,
   transformerAttributifyJsx
 } from "unocss";
+import akarIcons from "@iconify-json/akar-icons/icons.json";
+import antDesignIcons from "@iconify-json/ant-design/icons.json";
+import biIcons from "@iconify-json/bi/icons.json";
+import bxIcons from "@iconify-json/bx/icons.json";
+import charmIcons from "@iconify-json/charm/icons.json";
+import faBrandsIcons from "@iconify-json/fa-brands/icons.json";
+import faSolidIcons from "@iconify-json/fa-solid/icons.json";
+import feIcons from "@iconify-json/fe/icons.json";
+import gameIcons from "@iconify-json/game-icons/icons.json";
+import ggIcons from "@iconify-json/gg/icons.json";
+import heroiconsSolidIcons from "@iconify-json/heroicons-solid/icons.json";
+import icIcons from "@iconify-json/ic/icons.json";
+import iconParkOutlineIcons from "@iconify-json/icon-park-outline/icons.json";
+import ionIcons from "@iconify-json/ion/icons.json";
+import jamIcons from "@iconify-json/jam/icons.json";
+import laIcons from "@iconify-json/la/icons.json";
+import makiIcons from "@iconify-json/maki/icons.json";
+import materialSymbolsIcons from "@iconify-json/material-symbols/icons.json";
+import mdiIcons from "@iconify-json/mdi/icons.json";
+import octiconIcons from "@iconify-json/octicon/icons.json";
+import phIcons from "@iconify-json/ph/icons.json";
+import riIcons from "@iconify-json/ri/icons.json";
+import simpleIcons from "@iconify-json/simple-icons/icons.json";
+import tablerIcons from "@iconify-json/tabler/icons.json";
 
 const colorReg = (prefix: string) => new RegExp("^" + prefix + "-([0-9a-z]+)(/(\\d+))?$");
 
@@ -65,6 +89,32 @@ export default defineConfig({
     presetAttributify(),
     presetIcons({
       warn: true,
+      collections: {
+        "akar-icons": () => akarIcons,
+        "ant-design": () => antDesignIcons,
+        bi: () => biIcons,
+        bx: () => bxIcons,
+        charm: () => charmIcons,
+        "fa-brands": () => faBrandsIcons,
+        "fa-solid": () => faSolidIcons,
+        fe: () => feIcons,
+        "game-icons": () => gameIcons,
+        gg: () => ggIcons,
+        "heroicons-solid": () => heroiconsSolidIcons,
+        ic: () => icIcons,
+        "icon-park-outline": () => iconParkOutlineIcons,
+        ion: () => ionIcons,
+        jam: () => jamIcons,
+        la: () => laIcons,
+        maki: () => makiIcons,
+        "material-symbols": () => materialSymbolsIcons,
+        mdi: () => mdiIcons,
+        octicon: () => octiconIcons,
+        ph: () => phIcons,
+        ri: () => riIcons,
+        "simple-icons": () => simpleIcons,
+        tabler: () => tablerIcons
+      },
       extraProperties: {
         display: "inline-block"
       }

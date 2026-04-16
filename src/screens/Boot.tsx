@@ -1,3 +1,6 @@
+import { useEffect, useState } from "react";
+import { useInterval } from "~/hooks";
+
 interface BootProps {
   restart: boolean;
   sleep: boolean;

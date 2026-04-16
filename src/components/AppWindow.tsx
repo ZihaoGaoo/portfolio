@@ -1,5 +1,7 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Rnd } from "react-rnd";
+import { useWindowSize } from "~/hooks";
+import { useStore } from "~/stores";
 import { minMarginX, minMarginY, appBarHeight } from "~/utils";
 
 const FullIcon = ({ size }: { size: number }) => (
@@ -136,9 +138,8 @@ const Window = (props: WindowProps) => {
   const height = props.max ? winHeight : state.height;
   const disableMax = props.aspectRatio !== undefined;
 
-  const children = React.cloneElement(props.children as React.ReactElement, {
-    width: width
-  });
+  const childElement = props.children as React.ReactElement<{ width?: number }>;
+  const children = React.cloneElement(childElement, { width });
 
   return (
     <Rnd

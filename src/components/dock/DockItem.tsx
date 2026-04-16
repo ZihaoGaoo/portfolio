@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef } from "react";
 import useRaf from "@rooks/use-raf";
 import {
   motion,
@@ -7,12 +7,13 @@ import {
   useTransform,
   type MotionValue
 } from "framer-motion";
+import { useWindowSize } from "~/hooks";
 
 // Hover effect is adopted from https://github.com/PuruVJ/macos-web/blob/main/src/components/dock/DockItem.tsx
 
 const useDockHoverAnimation = (
   mouseX: MotionValue,
-  ref: React.RefObject<HTMLImageElement>,
+  ref: React.RefObject<HTMLImageElement | null>,
   dockSize: number,
   dockMag: number
 ) => {
@@ -92,6 +93,7 @@ export default function DockItem({
   const imgRef = useRef<HTMLImageElement>(null);
   const { width } = useDockHoverAnimation(mouseX, imgRef, dockSize, dockMag);
   const { winWidth } = useWindowSize();
+  const MotionImg = motion.img as React.ComponentType<any>;
 
   return (
     <li
@@ -108,7 +110,7 @@ export default function DockItem({
       </p>
       {link ? (
         <a href={link} target="_blank" rel="noreferrer">
-          <motion.img
+          <MotionImg
             ref={imgRef}
             src={img}
             alt={title}
@@ -118,7 +120,7 @@ export default function DockItem({
           />
         </a>
       ) : (
-        <motion.img
+        <MotionImg
           ref={imgRef}
           src={img}
           alt={title}

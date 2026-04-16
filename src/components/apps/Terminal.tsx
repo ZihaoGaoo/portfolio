@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useEffect, useRef, useState, type JSX } from "react";
 import { terminal } from "~/configs";
+import { useInterval } from "~/hooks";
 import type { TerminalData } from "~/types";
 
 const CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789落霞与孤鹜齐飞秋水共长天一色";

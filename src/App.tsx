@@ -1,14 +1,8 @@
-import React from "react";
-import { createRoot } from "react-dom/client";
+import React, { useState } from "react";
 
-import Desktop from "~/pages/Desktop";
-import Login from "~/pages/Login";
-import Boot from "~/pages/Boot";
-
-import "@unocss/reset/tailwind.css";
-import "uno.css";
-import "katex/dist/katex.min.css";
-import "~/styles/index.css";
+import Desktop from "~/screens/Desktop";
+import Login from "~/screens/Login";
+import Boot from "~/screens/Boot";
 
 export default function App() {
   const [login, setLogin] = useState<boolean>(false);
@@ -62,12 +56,3 @@ export default function App() {
     );
   }
 }
-
-const rootElement = document.getElementById("root") as HTMLElement;
-const root = createRoot(rootElement);
-
-root.render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);

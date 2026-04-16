@@ -1,6 +1,7 @@
-import React from "react";
+import React, { useEffect, useRef, useState, type JSX } from "react";
 import { format } from "date-fns";
 import { apps, launchpadApps } from "~/configs";
+import { useClickOutside } from "~/hooks";
 import type { LaunchpadData, AppsData } from "~/types";
 
 const APPS: { [key: string]: (LaunchpadData | AppsData)[] } = {
@@ -25,7 +26,7 @@ interface SpotlightProps {
   toggleSpotlight: () => void;
   openApp: (id: string) => void;
   toggleLaunchpad: (target: boolean) => void;
-  btnRef: React.RefObject<HTMLDivElement>;
+  btnRef: React.RefObject<HTMLDivElement | null>;
 }
 
 export default function Spotlight({

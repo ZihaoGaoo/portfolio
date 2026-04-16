@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useState } from "react";
 import { wallpapers, user } from "~/configs";
+import { useStore } from "~/stores";
 import type { MacActions } from "~/types";
 
 export default function Login(props: MacActions) {

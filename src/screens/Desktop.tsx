@@ -1,5 +1,11 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { apps, wallpapers } from "~/configs";
+import AppWindow from "~/components/AppWindow";
+import Launchpad from "~/components/Launchpad";
+import Spotlight from "~/components/Spotlight";
+import Dock from "~/components/dock/Dock";
+import TopBar from "~/components/menus/TopBar";
+import { useStore } from "~/stores";
 import { minMarginY } from "~/utils";
 import type { MacActions } from "~/types";
 
@@ -37,7 +43,7 @@ export default function Desktop(props: MacActions) {
   } as DesktopState);
 
   const [spotlightBtnRef, setSpotlightBtnRef] =
-    useState<React.RefObject<HTMLDivElement> | null>(null);
+    useState<React.RefObject<HTMLDivElement | null> | null>(null);
 
   const { dark, brightness } = useStore((state) => ({
     dark: state.dark,
@@ -266,7 +272,7 @@ export default function Desktop(props: MacActions) {
           openApp={openApp}
           toggleLaunchpad={toggleLaunchpad}
           toggleSpotlight={toggleSpotlight}
-          btnRef={spotlightBtnRef as React.RefObject<HTMLDivElement>}
+          btnRef={spotlightBtnRef as React.RefObject<HTMLDivElement | null>}
         />
       )}
 

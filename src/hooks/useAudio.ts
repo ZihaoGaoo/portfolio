@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from "react";
+
 export interface HTMLAudioState {
   volume: number;
   playing: boolean;

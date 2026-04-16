@@ -1,5 +1,7 @@
+import { useRef, useState } from "react";
 import Webcam from "react-webcam";
 import { format } from "date-fns";
+import { useStore } from "~/stores";
 
 interface SidebarProps {
   state: FaceTimeState;

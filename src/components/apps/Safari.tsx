@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useState } from "react";
 import { websites, wallpapers } from "~/configs";
+import { useStore } from "~/stores";
 import { checkURL } from "~/utils";
 import type { SiteSectionData, SiteData } from "~/types";
 

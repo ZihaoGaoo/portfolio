@@ -4,6 +4,7 @@ import { commonmark } from "@milkdown/preset-commonmark";
 import { gfm } from "@milkdown/preset-gfm";
 import { history } from "@milkdown/plugin-history";
 import { listener, listenerCtx } from "@milkdown/plugin-listener";
+import { useStore } from "~/stores";
 
 const MilkdownEditor = () => {
   const { typoraMd, setTyporaMd } = useStore((state) => ({

@@ -1,5 +1,11 @@
 import { appBarHeight } from "~/utils";
 import type { AppsData } from "~/types";
+import Bear from "~/components/apps/Bear";
+import FaceTime from "~/components/apps/FaceTime";
+import Safari from "~/components/apps/Safari";
+import Terminal from "~/components/apps/Terminal";
+import Typora from "~/components/apps/Typora";
+import VSCode from "~/components/apps/VSCode";
 
 const apps: AppsData[] = [
   {

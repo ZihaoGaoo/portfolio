@@ -1,8 +1,14 @@
-import React from "react";
+import React, { forwardRef, useEffect, useRef, useState } from "react";
 import { format } from "date-fns";
+import { useAudio, useInterval, useWindowSize } from "~/hooks";
+import { useStore } from "~/stores";
 import { isFullScreen } from "~/utils";
 import { music } from "~/configs";
 import type { MacActions } from "~/types";
+import AppleMenu from "./AppleMenu";
+import Battery from "./Battery";
+import ControlCenterMenu from "./ControlCenterMenu";
+import WifiMenu from "./WifiMenu";
 
 interface TopBarItemProps {
   hideOnMobile?: boolean;
@@ -34,6 +40,7 @@ const TopBarItem = forwardRef(
     );
   }
 );
+TopBarItem.displayName = "TopBarItem";
 
 const CCMIcon = ({ size }: { size: number }) => {
   return (
@@ -51,7 +58,7 @@ const CCMIcon = ({ size }: { size: number }) => {
 
 interface TopBarProps extends MacActions {
   title: string;
-  setSpotlightBtnRef: (value: React.RefObject<HTMLDivElement>) => void;
+  setSpotlightBtnRef: (value: React.RefObject<HTMLDivElement | null>) => void;
   hide: boolean;
   toggleSpotlight: () => void;
 }
