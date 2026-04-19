@@ -10,8 +10,8 @@ interface MacSessionState {
 
 const initialMacSessionState: MacSessionState = {
   login: false,
-  booting: false,
-  restart: false,
+  booting: true,
+  restart: true,
   sleep: false
 };
 
@@ -30,10 +30,13 @@ export function useMacSession() {
     }));
   };
 
-  const setBooting = (value: boolean | ((prevVar: boolean) => boolean)) => {
+  const finishBooting = () => {
     setSession((previousState) => ({
       ...previousState,
-      booting: resolveStateUpdate(value, previousState.booting)
+      login: true,
+      booting: false,
+      restart: false,
+      sleep: false
     }));
   };
 
@@ -60,6 +63,6 @@ export function useMacSession() {
   return {
     session,
     actions,
-    setBooting
+    finishBooting
   };
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { memo, useEffect, useMemo, useState } from "react";
 import { Rnd } from "react-rnd";
 import { useWindowSize } from "~/hooks";
 import { useStore } from "~/stores";
@@ -137,9 +137,32 @@ const Window = (props: WindowProps) => {
   const width = props.max ? winWidth : state.width;
   const height = props.max ? winHeight : state.height;
   const disableMax = props.aspectRatio !== undefined;
+  const position = {
+    x: props.max
+      ? winWidth // because of boundary
+      : Math.min(
+          // "winWidth * 2" because of the boundary for windows
+          winWidth * 2 - minMarginX,
+          Math.max(
+            // "+ winWidth" because we add a boundary for windows
+            winWidth - state.width + minMarginX,
+            state.x
+          )
+        ),
+    y: props.max
+      ? -minMarginY // because of boundary
+      : Math.min(
+          // "- minMarginY" because of the boundary for windows
+          winHeight - minMarginY - (dockSize + 15 + minMarginY),
+          Math.max(0, state.y)
+        )
+  };
 
   const childElement = props.children as React.ReactElement<{ width?: number }>;
-  const children = React.cloneElement(childElement, { width });
+  const children = useMemo(
+    () => React.cloneElement(childElement, { width }),
+    [childElement, width]
+  );
 
   return (
     <Rnd
@@ -148,26 +171,7 @@ const Window = (props: WindowProps) => {
         width: width,
         height: height
       }}
-      position={{
-        x: props.max
-          ? winWidth // because of boundary
-          : Math.min(
-              // "winWidth * 2" because of the boundary for windows
-              winWidth * 2 - minMarginX,
-              Math.max(
-                // "+ winWidth" because we add a boundary for windows
-                winWidth - state.width + minMarginX,
-                state.x
-              )
-            ),
-        y: props.max
-          ? -minMarginY // because of boundary
-          : Math.min(
-              // "- minMarginY" because of the boundary for windows
-              winHeight - minMarginY - (dockSize + 15 + minMarginY),
-              Math.max(0, state.y)
-            )
-      }}
+      position={position}
       onDragStop={(e, d) => {
         setState((previousState) => ({
           ...previousState,
@@ -190,7 +194,7 @@ const Window = (props: WindowProps) => {
       enableResizing={!props.max}
       lockAspectRatio={props.aspectRatio}
       lockAspectRatioExtraHeight={props.aspectRatio ? appBarHeight : undefined}
-      style={{ zIndex: props.z }}
+      style={{ zIndex: props.z, willChange: props.min ? "opacity" : "transform" }}
       onMouseDown={() => props.focus(props.id)}
       className={`overflow-hidden ${round} ${border} shadow-lg shadow-black/30 ${minimized}`}
       id={`window-${props.id}`}
@@ -214,4 +218,4 @@ const Window = (props: WindowProps) => {
   );
 };
 
-export default Window;
+export default memo(Window);

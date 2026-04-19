@@ -4,11 +4,15 @@ import Boot from "~/screens/Boot";
 import { useMacSession } from "~/features";
 
 export default function App() {
-  const { session, actions, setBooting } = useMacSession();
+  const { session, actions, finishBooting } = useMacSession();
 
   if (session.booting) {
     return (
-      <Boot restart={session.restart} sleep={session.sleep} setBooting={setBooting} />
+      <Boot
+        restart={session.restart}
+        sleep={session.sleep}
+        finishBooting={finishBooting}
+      />
     );
   }
 

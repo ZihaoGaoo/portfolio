@@ -6,8 +6,9 @@ import Dock from "~/components/dock/Dock";
 import TopBar from "~/components/menus/TopBar";
 import { useDesktopManager } from "~/features";
 import { useStore } from "~/stores";
-import { minMarginY } from "~/utils";
+import { enterFullScreen, isFullScreen, minMarginY } from "~/utils";
 import type { MacActions } from "~/types";
+import { useEffect } from "react";
 
 export default function Desktop(props: MacActions) {
   const { dark, brightness } = useStore((state) => ({
@@ -24,6 +25,12 @@ export default function Desktop(props: MacActions) {
     toggleSpotlight,
     openApp
   } = useDesktopManager();
+
+  useEffect(() => {
+    if (!isFullScreen()) {
+      enterFullScreen();
+    }
+  }, []);
 
   return (
     <div

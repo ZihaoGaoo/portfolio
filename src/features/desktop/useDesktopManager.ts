@@ -1,4 +1,4 @@
-import { useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { apps } from "~/configs";
 import type { AppsData } from "~/types";
 import { animateLaunchpad, minimizeWindowToDock, restoreMinimizedWindow } from "./dom";
@@ -48,24 +48,29 @@ export function useDesktopManager() {
   const [state, setState] = useState<DesktopState>(createInitialDesktopState);
   const [spotlightBtnRef, setSpotlightBtnRef] =
     useState<RefObject<HTMLDivElement | null> | null>(null);
+  const minAppsRef = useRef(state.minApps);
 
-  const toggleLaunchpad = (target: boolean): void => {
+  useEffect(() => {
+    minAppsRef.current = state.minApps;
+  }, [state.minApps]);
+
+  const toggleLaunchpad = useCallback((target: boolean): void => {
     animateLaunchpad(target);
 
     setState((previousState) => ({
       ...previousState,
       showLaunchpad: target
     }));
-  };
+  }, []);
 
-  const toggleSpotlight = (): void => {
+  const toggleSpotlight = useCallback((): void => {
     setState((previousState) => ({
       ...previousState,
       spotlight: !previousState.spotlight
     }));
-  };
+  }, []);
 
-  const setAppMax = (id: string, target?: boolean): void => {
+  const setAppMax = useCallback((id: string, target?: boolean): void => {
     setState((previousState) => {
       const maxApps = toggleAppState(previousState.maxApps, id, target);
 
@@ -75,21 +80,24 @@ export function useDesktopManager() {
         hideDockAndTopbar: maxApps[id]
       };
     });
-  };
+  }, []);
 
-  const setAppMin = (id: string, target?: boolean): void => {
+  const setAppMin = useCallback((id: string, target?: boolean): void => {
     setState((previousState) => ({
       ...previousState,
       minApps: toggleAppState(previousState.minApps, id, target)
     }));
-  };
+  }, []);
 
-  const minimizeApp = (id: string): void => {
-    minimizeWindowToDock(id);
-    setAppMin(id, true);
-  };
+  const minimizeApp = useCallback(
+    (id: string): void => {
+      minimizeWindowToDock(id);
+      setAppMin(id, true);
+    },
+    [setAppMin]
+  );
 
-  const closeApp = (id: string): void => {
+  const closeApp = useCallback((id: string): void => {
     setState((previousState) => ({
       ...previousState,
       showApps: {
@@ -102,62 +110,85 @@ export function useDesktopManager() {
       },
       hideDockAndTopbar: false
     }));
-  };
+  }, []);
 
-  const openApp = (id: string): void => {
+  const openApp = useCallback((id: string): void => {
     const currentApp = getAppById(id);
-    const shouldRestore = state.minApps[id];
+    const shouldRestore = minAppsRef.current[id];
 
     if (shouldRestore) {
       restoreMinimizedWindow(id);
     }
 
     setState((previousState) => {
-      const maxZ = previousState.maxZ + 1;
+      const isVisible = previousState.showApps[id];
+      const isFocused = previousState.appsZ[id] === previousState.maxZ;
+      const shouldBringToFront = shouldRestore || !isVisible || !isFocused;
+      const nextMaxZ = shouldBringToFront ? previousState.maxZ + 1 : previousState.maxZ;
       const minApps = shouldRestore
         ? {
             ...previousState.minApps,
             [id]: false
           }
         : previousState.minApps;
+      const showApps = isVisible
+        ? previousState.showApps
+        : {
+            ...previousState.showApps,
+            [id]: true
+          };
+      const appsZ = shouldBringToFront
+        ? {
+            ...previousState.appsZ,
+            [id]: nextMaxZ
+          }
+        : previousState.appsZ;
+
+      if (
+        !shouldBringToFront &&
+        isVisible &&
+        previousState.currentTitle === currentApp.title
+      ) {
+        return previousState;
+      }
 
       return {
         ...previousState,
-        showApps: {
-          ...previousState.showApps,
-          [id]: true
-        },
-        appsZ: {
-          ...previousState.appsZ,
-          [id]: maxZ
-        },
+        showApps,
+        appsZ,
         minApps,
-        maxZ,
+        maxZ: nextMaxZ,
         currentTitle: currentApp.title
       };
     });
-  };
+  }, []);
 
-  const getWindowProps = (app: AppsData) => ({
-    id: app.id,
-    title: app.title,
-    width: app.width,
-    height: app.height,
-    minWidth: app.minWidth,
-    minHeight: app.minHeight,
-    aspectRatio: app.aspectRatio,
-    x: app.x,
-    y: app.y,
-    z: state.appsZ[app.id],
-    max: state.maxApps[app.id],
-    min: state.minApps[app.id],
-    close: closeApp,
-    setMax: setAppMax,
-    setMin: minimizeApp,
-    focus: openApp
-  });
+  const getWindowProps = useCallback(
+    (app: AppsData) => ({
+      id: app.id,
+      title: app.title,
+      width: app.width,
+      height: app.height,
+      minWidth: app.minWidth,
+      minHeight: app.minHeight,
+      aspectRatio: app.aspectRatio,
+      x: app.x,
+      y: app.y,
+      z: state.appsZ[app.id],
+      max: state.maxApps[app.id],
+      min: state.minApps[app.id],
+      close: closeApp,
+      setMax: setAppMax,
+      setMin: minimizeApp,
+      focus: openApp
+    }),
+    [closeApp, minimizeApp, openApp, setAppMax, state.appsZ, state.maxApps, state.minApps]
+  );
 
-  const visibleDesktopApps = apps.filter((app) => app.desktop && state.showApps[app.id]);
+  const visibleDesktopApps = useMemo(
+    () => apps.filter((app) => app.desktop && state.showApps[app.id]),
+    [state.showApps]
+  );
 
   return {
     state,

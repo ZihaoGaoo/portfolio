@@ -4,13 +4,13 @@ import { useInterval } from "~/hooks";
 interface BootProps {
   restart: boolean;
   sleep: boolean;
-  setBooting: (value: boolean | ((prevVar: boolean) => boolean)) => void;
+  finishBooting: () => void;
 }
 
 const loadingInterval = 1;
 const bootingInterval = 500;
 
-export default function Boot({ restart, sleep, setBooting }: BootProps) {
+export default function Boot({ restart, sleep, finishBooting }: BootProps) {
   const [loading, setLoading] = useState<boolean>(false);
   const [percent, setPercent] = useState<number>(0);
 
@@ -23,7 +23,7 @@ export default function Boot({ restart, sleep, setBooting }: BootProps) {
       const newPercent = percent + 0.15;
       if (newPercent >= 100) {
         setTimeout(() => {
-          setBooting(false);
+          finishBooting();
           setLoading(false);
         }, bootingInterval);
       } else setPercent(newPercent);
@@ -32,7 +32,7 @@ export default function Boot({ restart, sleep, setBooting }: BootProps) {
   );
 
   const handleClick = () => {
-    if (sleep) setBooting(false);
+    if (sleep) finishBooting();
     else if (restart || loading) return;
     else setLoading(true);
   };

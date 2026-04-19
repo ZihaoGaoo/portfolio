@@ -66,6 +66,15 @@
 
 /* --------- slider --------- */
 
+.menu-item-group {
+  @apply relative px-1 pt-1;
+}
+
+.menu-item-group-divider::after {
+  content: "";
+  @apply block h-1.5 max-w-full mx-2 border-b border-c-400;
+}
+
 .slider .rangeslider {
   @apply bg-c-300 w-full h-7 shadow-none m-0 rounded-r-full border-t border-r border-b border-transparent;
 }
