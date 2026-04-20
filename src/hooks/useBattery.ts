@@ -68,21 +68,33 @@ const useBatteryReal = (): UseBatteryState => {
       setState(newState);
     };
 
-    nav!.getBattery!().then((bat: BatteryManager) => {
-      if (!isMounted) {
-        return;
-      }
+    nav!.getBattery!()
+      .then((bat: BatteryManager) => {
+        if (!isMounted) {
+          return;
+        }
 
-      battery = bat;
-      if (battery && battery.addEventListener) {
-        battery.addEventListener("chargingchange", handleChange);
-        battery.addEventListener("chargingtimechange", handleChange);
-        battery.addEventListener("dischargingtimechange", handleChange);
-        battery.addEventListener("levelchange", handleChange);
-      }
+        battery = bat;
+        if (battery && battery.addEventListener) {
+          battery.addEventListener("chargingchange", handleChange);
+          battery.addEventListener("chargingtimechange", handleChange);
+          battery.addEventListener("dischargingtimechange", handleChange);
+          battery.addEventListener("levelchange", handleChange);
+        }
 
-      handleChange();
-    });
+        handleChange();
+      })
+      .catch(() => {
+        if (!isMounted) {
+          return;
+        }
+
+        setState({
+          isSupported: false,
+          fetched: true,
+          ...defaultState
+        });
+      });
 
     return () => {
       isMounted = false;

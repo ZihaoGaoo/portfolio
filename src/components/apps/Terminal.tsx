@@ -1,89 +1,98 @@
-import React, { useEffect, useRef, useState, type JSX } from "react";
+import React, { type JSX } from "react";
 import { terminal } from "~/configs";
-import { useInterval } from "~/hooks";
+import {
+  streamAgentMessage,
+  type AgentAssistantMessageEvent,
+  type AgentResultEvent,
+  type AgentStreamEvent
+} from "~/features/agent/http";
 import type { TerminalData } from "~/types";
 
-const CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789落霞与孤鹜齐飞秋水共长天一色";
-const EMOJIS = ["\\(o_o)/", "(˚Δ˚)b", "(^-^*)", "(╯‵□′)╯", "\\(°ˊДˋ°)/", "╰(‵□′)╯"];
-
-const getEmoji = () => {
-  return EMOJIS[Math.floor(Math.random() * EMOJIS.length)];
-};
-
 interface TerminalState {
-  rmrf: boolean;
   content: JSX.Element[];
 }
 
-// rain animation is adopted from: https://codepen.io/P3R0/pen/MwgoKv
-const HowDare = ({ setRMRF }: { setRMRF: (value: boolean) => void }) => {
-  const FONT_SIZE = 12;
+interface ParsedInput {
+  args?: string;
+  cmd: string;
+}
 
-  const [emoji, setEmoji] = useState("");
-  const [drops, setDrops] = useState<number[]>([]);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+interface TerminalCommandContext {
+  args?: string;
+  id: number;
+  rawInput: string;
+}
 
-  useEffect(() => {
-    const container = containerRef.current;
-    const canvas = canvasRef.current;
+type TerminalCommand = (context: TerminalCommandContext) => Promise<void> | void;
 
-    if (!container || !canvas) return;
+const TERMINAL_SUGGESTIONS = [
+  "ask 你主要做什么方向？",
+  "ask 你最近在做什么项目？",
+  "ls",
+  "cd about",
+  "chat"
+] as const;
 
-    canvas.height = container.offsetHeight;
-    canvas.width = container.offsetWidth;
+const createSessionId = () => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
 
-    const columns = Math.floor(canvas.width / FONT_SIZE);
-    setDrops(Array(columns).fill(1));
-
-    setEmoji(getEmoji());
-  }, []);
-
-  const rain = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d")!;
-
-    ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    ctx.fillStyle = "#2e9244";
-    ctx.font = `${FONT_SIZE}px arial`;
-
-    drops.forEach((y, x) => {
-      const text = CHARACTERS[Math.floor(Math.random() * CHARACTERS.length)];
-      ctx.fillText(text, x * FONT_SIZE, y * FONT_SIZE);
-    });
-
-    setDrops(
-      drops.map((y) => {
-        // sends the drop back to the top randomly after it has crossed the screen
-        // adding randomness to the reset to make the drops scattered on the Y axis
-        if (y * FONT_SIZE > canvas.height && Math.random() > 0.975) return 1;
-        // increments Y coordinate
-        else return y + 1;
-      })
-    );
-  };
-
-  useInterval(rain, 33);
-
-  return (
-    <div
-      ref={containerRef}
-      className="fixed size-full bg-black text-white"
-      onClick={() => setRMRF(false)}
-    >
-      <canvas ref={canvasRef}></canvas>
-      <div className="font-avenir absolute h-28 text-center space-y-4 m-auto inset-0">
-        <div text-4xl>{emoji}</div>
-        <div text-3xl>HOW DARE YOU!</div>
-        <div>Click to go back</div>
-      </div>
-    </div>
-  );
+  return `session-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 };
+
+const sanitizeText = (text: string) => {
+  return text.replace(/\s+/g, " ").trim();
+};
+
+const extractNodeText = (node: React.ReactNode): string => {
+  if (node === null || node === undefined || typeof node === "boolean") {
+    return "";
+  }
+
+  if (typeof node === "string" || typeof node === "number") {
+    return String(node);
+  }
+
+  if (Array.isArray(node)) {
+    return node.map((item) => extractNodeText(item)).join("");
+  }
+
+  if (React.isValidElement<{ children?: React.ReactNode; href?: string }>(node)) {
+    const childText = extractNodeText(node.props.children);
+    const href = typeof node.props.href === "string" ? node.props.href : "";
+
+    if (href && !childText.includes(href)) {
+      return `${childText} (${href})`;
+    }
+
+    return childText;
+  }
+
+  return "";
+};
+
+const serializeTerminalEntries = (
+  entries: TerminalData[],
+  path: string[] = []
+): string[] => {
+  return entries.flatMap((item) => {
+    const nextPath = [...path, item.title];
+    const joinedPath = nextPath.join("/");
+
+    if (item.type === "folder") {
+      return [
+        `[dir] ${joinedPath}`,
+        ...serializeTerminalEntries(item.children ?? [], nextPath)
+      ];
+    }
+
+    const content = item.content ? sanitizeText(extractNodeText(item.content)) : "";
+    return [`[file] ${joinedPath}${content ? `: ${content}` : ""}`];
+  });
+};
+
+const PORTFOLIO_CONTEXT_LINES = serializeTerminalEntries(terminal);
 
 export default class Terminal extends React.Component<{}, TerminalState> {
   private history = [] as string[];
@@ -91,41 +100,79 @@ export default class Terminal extends React.Component<{}, TerminalState> {
   private curInputTimes = 0;
   private curDirPath = [] as any;
   private curChildren = terminal as any;
-  private commands: {
-    [key: string]: { (): void } | { (arg?: string): void };
-  };
+  private chatMode = false;
+  private chatSessionId: string | null = null;
+  private activeAbortController: AbortController | null = null;
+  private commands: Record<string, TerminalCommand>;
 
   constructor(props: {}) {
     super(props);
     this.state = {
-      content: [],
-      rmrf: false
+      content: []
     };
     this.commands = {
       cd: this.cd,
       ls: this.ls,
       cat: this.cat,
+      ask: this.ask,
+      chat: this.chat,
+      exit: this.exitChat,
       clear: this.clear,
       help: this.help
     };
   }
 
   componentDidMount() {
-    this.reset();
     this.generateInputRow(this.curInputTimes);
+    window.addEventListener("keydown", this.handleWindowKeyDown);
+  }
+
+  componentWillUnmount() {
+    window.removeEventListener("keydown", this.handleWindowKeyDown);
+    this.activeAbortController?.abort();
   }
 
   reset = () => {
-    const terminal = document.querySelector("#terminal-content") as HTMLElement;
-    terminal.innerHTML = "";
+    this.setState({
+      content: []
+    });
+  };
+
+  handleWindowKeyDown = (event: KeyboardEvent) => {
+    const key = event.key.toLowerCase();
+    if ((event.ctrlKey || event.metaKey) && key === "c" && this.activeAbortController) {
+      event.preventDefault();
+      this.activeAbortController.abort();
+    }
   };
 
   addRow = (row: JSX.Element) => {
-    if (this.state.content.find((item) => item.key === row.key)) return;
+    this.setState((previousState) => {
+      if (previousState.content.some((item) => item.key === row.key)) {
+        return previousState;
+      }
 
-    const content = this.state.content;
-    content.push(row);
-    this.setState({ content });
+      return {
+        content: [...previousState.content, row]
+      };
+    });
+  };
+
+  upsertRow = (row: JSX.Element) => {
+    this.setState((previousState) => {
+      const content = [...previousState.content];
+      const index = content.findIndex((item) => item.key === row.key);
+
+      if (index === -1) {
+        content.push(row);
+      } else {
+        content[index] = row;
+      }
+
+      return {
+        content
+      };
+    });
   };
 
   getCurDirName = () => {
@@ -143,8 +190,223 @@ export default class Terminal extends React.Component<{}, TerminalState> {
     return children;
   };
 
+  getCurPath = () => {
+    return this.curDirPath.length === 0 ? "~" : `~/${this.curDirPath.join("/")}`;
+  };
+
+  getPromptLabel = () => {
+    if (this.chatMode) {
+      return {
+        prefix: "ai@portfolio",
+        suffix: "chat"
+      };
+    }
+
+    return {
+      prefix: "gao@macbook-pro",
+      suffix: this.getCurDirName()
+    };
+  };
+
+  parseInput = (text: string): ParsedInput => {
+    const trimmedText = text.trim();
+    if (!trimmedText) {
+      return {
+        cmd: ""
+      };
+    }
+
+    const [cmd, ...rest] = trimmedText.split(" ");
+    const args = rest.join(" ").trim();
+
+    return {
+      cmd,
+      args: args || undefined
+    };
+  };
+
+  buildAgentPrompt = (userMessage: string) => {
+    return [
+      "You are the assistant inside a simulated macOS terminal on a personal portfolio website.",
+      "Answer in concise plain text.",
+      "Ground your answer in the portfolio context below and do not invent experience that is not listed.",
+      "If the answer is not fully available, say so briefly and suggest a relevant terminal command when helpful.",
+      `Current working directory: ${this.getCurPath()}`,
+      "Portfolio context:",
+      ...PORTFOLIO_CONTEXT_LINES,
+      "",
+      "User request:",
+      userMessage
+    ].join("\n");
+  };
+
+  renderPlainTextRow = (label: string, text: string, streaming = false) => {
+    return (
+      <div className="whitespace-pre-wrap break-words">
+        <span className="text-green-300">{label}&gt; </span>
+        <span>{text}</span>
+        {streaming && <span className="animate-pulse">▋</span>}
+      </div>
+    );
+  };
+
+  renderSystemTextRow = (text: string, colorClass = "text-gray-300") => {
+    return <div className={`whitespace-pre-wrap break-words ${colorClass}`}>{text}</div>;
+  };
+
+  getChatSessionId = () => {
+    if (!this.chatSessionId) {
+      this.chatSessionId = createSessionId();
+    }
+
+    return this.chatSessionId;
+  };
+
+  runAgentTurn = async ({
+    id,
+    question,
+    sessionId
+  }: {
+    id: number;
+    question: string;
+    sessionId: string;
+  }) => {
+    const assistantRowKey = `terminal-result-row-${id}-assistant`;
+    const controller = new AbortController();
+    let assistantText = "";
+    let streamedAssistant = false;
+    let metaRowCount = 0;
+
+    this.activeAbortController = controller;
+    this.upsertRow(
+      <div key={assistantRowKey} className="break-all">
+        {this.renderPlainTextRow("assistant", "", true)}
+      </div>
+    );
+
+    try {
+      await streamAgentMessage({
+        sessionId,
+        content: this.buildAgentPrompt(question),
+        signal: controller.signal,
+        onEvent: (event: AgentStreamEvent) => {
+          if (event.type === "assistant_delta") {
+            assistantText += event.delta;
+            streamedAssistant = true;
+            this.upsertRow(
+              <div key={assistantRowKey} className="break-all">
+                {this.renderPlainTextRow("assistant", assistantText, true)}
+              </div>
+            );
+            return;
+          }
+
+          if (event.type === "assistant_message") {
+            const assistantEvent = event as AgentAssistantMessageEvent;
+            if (!streamedAssistant) {
+              assistantText = assistantEvent.content;
+              this.upsertRow(
+                <div key={assistantRowKey} className="break-all">
+                  {this.renderPlainTextRow("assistant", assistantText, true)}
+                </div>
+              );
+            }
+            return;
+          }
+
+          if (event.type === "step_started") {
+            metaRowCount += 1;
+            this.addRow(
+              <div
+                key={`terminal-result-row-${id}-meta-${metaRowCount}`}
+                className="break-all"
+              >
+                {this.renderSystemTextRow(
+                  `[step ${event.step}/${event.maxSteps}]`,
+                  "text-gray-400"
+                )}
+              </div>
+            );
+            return;
+          }
+
+          if (event.type === "tool_call") {
+            metaRowCount += 1;
+            this.addRow(
+              <div
+                key={`terminal-result-row-${id}-meta-${metaRowCount}`}
+                className="break-all"
+              >
+                {this.renderSystemTextRow(`tool> ${event.toolName}`, "text-cyan-300")}
+              </div>
+            );
+            return;
+          }
+
+          if (event.type === "tool_result") {
+            metaRowCount += 1;
+            const resultText = event.success
+              ? `tool-result> ${event.content}`
+              : `tool-error> ${event.error ?? "Unknown error"}`;
+            this.addRow(
+              <div
+                key={`terminal-result-row-${id}-meta-${metaRowCount}`}
+                className="break-all"
+              >
+                {this.renderSystemTextRow(
+                  resultText,
+                  event.success ? "text-gray-300" : "text-red-300"
+                )}
+              </div>
+            );
+            return;
+          }
+
+          if (event.type === "result") {
+            const resultEvent = event as AgentResultEvent;
+            if (!assistantText) {
+              assistantText = resultEvent.assistantMessage;
+            }
+            return;
+          }
+
+          if (event.type === "error") {
+            throw new Error(event.message);
+          }
+        }
+      });
+
+      const finalText = assistantText || "No response received.";
+      this.upsertRow(
+        <div key={assistantRowKey} className="break-all">
+          {this.renderPlainTextRow("assistant", finalText)}
+        </div>
+      );
+    } catch (error) {
+      if (controller.signal.aborted) {
+        this.upsertRow(
+          <div key={assistantRowKey} className="break-all">
+            {this.renderSystemTextRow("^C", "text-yellow-200")}
+          </div>
+        );
+        return;
+      }
+
+      const message = error instanceof Error ? error.message : String(error);
+      this.upsertRow(
+        <div key={assistantRowKey} className="break-all">
+          {this.renderSystemTextRow(`agent error: ${message}`, "text-red-300")}
+        </div>
+      );
+    } finally {
+      if (this.activeAbortController === controller) {
+        this.activeAbortController = null;
+      }
+    }
+  };
+
   // move into a specified folder
-  cd = (args?: string) => {
+  cd = ({ args, id }: TerminalCommandContext) => {
     if (args === undefined || args === "~") {
       // move to root
       this.curDirPath = [];
@@ -164,7 +426,7 @@ export default class Terminal extends React.Component<{}, TerminalState> {
       });
       if (target === undefined) {
         this.generateResultRow(
-          this.curInputTimes,
+          id,
           <span>{`cd: no such file or directory: ${args}`}</span>
         );
       } else {
@@ -175,87 +437,142 @@ export default class Terminal extends React.Component<{}, TerminalState> {
   };
 
   // display content of a specified folder
-  ls = () => {
+  ls = ({ id }: TerminalCommandContext) => {
     const result = [];
     for (const item of this.curChildren) {
       result.push(
         <span
-          key={`terminal-result-ls-${this.curInputTimes}-${item.id}`}
+          key={`terminal-result-ls-${id}-${item.id}`}
           className={`${item.type === "file" ? "text-white" : "text-purple-300"}`}
         >
           {item.title}
         </span>
       );
     }
-    this.generateResultRow(
-      this.curInputTimes,
-      <div className="grid grid-cols-4 w-full">{result}</div>
-    );
+    this.generateResultRow(id, <div className="grid grid-cols-4 w-full">{result}</div>);
   };
 
   // display content of a specified file
-  cat = (args?: string) => {
+  cat = ({ args, id }: TerminalCommandContext) => {
     const file = this.curChildren.find((item: TerminalData) => {
       return item.title === args && item.type === "file";
     });
 
     if (file === undefined) {
       this.generateResultRow(
-        this.curInputTimes,
+        id,
         <span>{`cat: ${args}: No such file or directory`}</span>
       );
     } else {
-      this.generateResultRow(this.curInputTimes, <span>{file.content}</span>);
+      this.generateResultRow(id, <span>{file.content}</span>);
     }
   };
 
   // clear terminal
   clear = () => {
-    this.curInputTimes += 1;
     this.reset();
   };
 
-  help = () => {
+  ask = async ({ args, id, rawInput }: TerminalCommandContext) => {
+    const question = rawInput.replace(/^ask\s*/, "").trim() || args;
+
+    if (!question) {
+      this.generateResultRow(
+        id,
+        this.renderSystemTextRow("usage: ask <question>", "text-yellow-200")
+      );
+      return;
+    }
+
+    await this.runAgentTurn({
+      id,
+      question,
+      sessionId: createSessionId()
+    });
+  };
+
+  chat = ({ id }: TerminalCommandContext) => {
+    this.chatMode = true;
+    this.getChatSessionId();
+    this.generateResultRow(
+      id,
+      this.renderSystemTextRow(
+        "Chat mode enabled. Type anything to talk with the assistant, or `exit` to leave chat mode.",
+        "text-cyan-300"
+      )
+    );
+  };
+
+  exitChat = ({ id }: TerminalCommandContext) => {
+    if (!this.chatMode) {
+      this.generateResultRow(
+        id,
+        this.renderSystemTextRow("exit: chat mode is not active.", "text-yellow-200")
+      );
+      return;
+    }
+
+    this.chatMode = false;
+    this.chatSessionId = null;
+    this.generateResultRow(
+      id,
+      this.renderSystemTextRow("Chat mode closed.", "text-cyan-300")
+    );
+  };
+
+  help = ({ id }: TerminalCommandContext) => {
     const help = (
       <ul className="list-disc ml-6 pb-1.5">
         <li>
-          <span text-red-400>cat {"<file>"}</span> - See the content of {"<file>"}
+          <span className="text-red-400">cat {"<file>"}</span> - See the content of{" "}
+          {"<file>"}
         </li>
         <li>
-          <span text-red-400>cd {"<dir>"}</span> - Move into
+          <span className="text-red-400">cd {"<dir>"}</span> - Move into
           {" <dir>"}, "cd .." to move to the parent directory, "cd" or "cd ~" to return to
           root
         </li>
         <li>
-          <span text-red-400>ls</span> - See files and directories in the current
-          directory
+          <span className="text-red-400">ls</span> - See files and directories in the
+          current directory
         </li>
         <li>
-          <span text-red-400>clear</span> - Clear the screen
+          <span className="text-red-400">clear</span> - Clear the screen
         </li>
         <li>
-          <span text-red-400>help</span> - Display this help menu
+          <span className="text-red-400">help</span> - Display this help menu
         </li>
         <li>
-          <span text-red-400>rm -rf /</span> - :)
+          <span className="text-red-400">ask {"<question>"}</span> - Ask the AI assistant
+          a single question about this portfolio
         </li>
         <li>
-          press <span text-red-400>up arrow / down arrow</span> - Select history commands
+          <span className="text-red-400">chat</span> - Enter continuous chat mode with the
+          AI assistant
         </li>
         <li>
-          press <span text-red-400>tab</span> - Auto complete
+          <span className="text-red-400">exit</span> - Leave chat mode
+        </li>
+        <li>
+          press <span className="text-red-400">up arrow / down arrow</span> - Select
+          history commands
+        </li>
+        <li>
+          press <span className="text-red-400">tab</span> - Auto complete
+        </li>
+        <li>
+          press <span className="text-red-400">ctrl + c</span> - Cancel an in-flight AI
+          response
         </li>
       </ul>
     );
-    this.generateResultRow(this.curInputTimes, help);
+    this.generateResultRow(id, help);
   };
 
   autoComplete = (text: string) => {
     if (text === "") return text;
 
-    const input = text.split(" ");
-    const cmd = input[0];
-    const args = input[1];
+    const { cmd, args } = this.parseInput(text);
 
     let result = text;
 
@@ -274,40 +591,53 @@ export default class Terminal extends React.Component<{}, TerminalState> {
     return result;
   };
 
-  keyPress = (e: React.KeyboardEvent) => {
+  keyPress = async (e: React.KeyboardEvent) => {
     const keyCode = e.key;
     const inputElement = document.querySelector(
       `#terminal-input-${this.curInputTimes}`
     ) as HTMLInputElement;
     const inputText = inputElement.value.trim();
-    const input = inputText.split(" ");
+    const { cmd, args } = this.parseInput(inputText);
 
     if (keyCode === "Enter") {
+      if (!inputText) {
+        return;
+      }
+
       // ----------- run command -----------
       this.history.push(inputText);
-
-      const cmd = input[0];
-      const args = input[1];
+      const currentInputId = this.curInputTimes;
 
       // we can't edit the past input
       inputElement.setAttribute("readonly", "true");
 
-      if (inputText.substring(0, 6) === "rm -rf") this.setState({ rmrf: true });
-      else if (cmd && Object.keys(this.commands).includes(cmd)) {
-        this.commands[cmd](args);
-      } else {
-        this.generateResultRow(
-          this.curInputTimes,
-          <span>{`zsh: command not found: ${cmd}`}</span>
-        );
+      try {
+        if (cmd && Object.keys(this.commands).includes(cmd)) {
+          await this.commands[cmd]({
+            id: currentInputId,
+            args,
+            rawInput: inputText
+          });
+        } else if (this.chatMode) {
+          await this.runAgentTurn({
+            id: currentInputId,
+            question: inputText,
+            sessionId: this.getChatSessionId()
+          });
+        } else {
+          this.generateResultRow(
+            currentInputId,
+            <span>{`zsh: command not found: ${cmd}. Try: ask "${inputText}"`}</span>
+          );
+        }
+      } finally {
+        // point to the last history command
+        this.curHistory = this.history.length;
+
+        // generate new input row
+        this.curInputTimes += 1;
+        this.generateInputRow(this.curInputTimes);
       }
-
-      // point to the last history command
-      this.curHistory = this.history.length;
-
-      // generate new input row
-      this.curInputTimes += 1;
-      this.generateInputRow(this.curInputTimes);
     } else if (keyCode === "ArrowUp") {
       // ----------- previous history command -----------
       if (this.history.length > 0) {
@@ -334,18 +664,66 @@ export default class Terminal extends React.Component<{}, TerminalState> {
   };
 
   focusOnInput = (id: number) => {
-    const input = document.querySelector(`#terminal-input-${id}`) as HTMLInputElement;
+    const input = document.querySelector(
+      `#terminal-input-${id}`
+    ) as HTMLInputElement | null;
+    input?.focus();
+  };
+
+  insertCommand = (command: string) => {
+    const input = document.querySelector(
+      `#terminal-input-${this.curInputTimes}`
+    ) as HTMLInputElement | null;
+
+    if (!input || input.hasAttribute("readonly")) {
+      return;
+    }
+
+    input.value = command;
     input.focus();
+    input.setSelectionRange(command.length, command.length);
+  };
+
+  renderWelcome = () => {
+    return (
+      <div className="space-y-2 border-b border-white/8 pb-3">
+        <div>
+          <span className="text-green-300">ヽ(ˋ▽ˊ)ノ</span> Ask about research, projects,
+          or contact info right from the terminal.
+        </div>
+        <div className="text-gray-300">
+          Type a command manually, or click an example below to insert it into the prompt.
+        </div>
+        <div className="flex flex-wrap gap-2 pt-1">
+          {TERMINAL_SUGGESTIONS.map((command) => (
+            <button
+              key={command}
+              type="button"
+              className="rounded border border-white/10 bg-white/5 px-2 py-1 text-left transition-colors hover:bg-white/10"
+              onClick={(event) => {
+                event.stopPropagation();
+                this.insertCommand(command);
+              }}
+            >
+              <span className="text-red-300">$</span>{" "}
+              <span className="text-yellow-100">{command}</span>
+            </button>
+          ))}
+        </div>
+        <div className="text-gray-400">Type `help` to see the full command list.</div>
+      </div>
+    );
   };
 
   generateInputRow = (id: number) => {
+    const prompt = this.getPromptLabel();
     const newRow = (
-      <div key={`terminal-input-row-${id}`} flex>
+      <div key={`terminal-input-row-${id}`} className="flex">
         <div className="w-max hstack space-x-1.5">
-          <span text-yellow-200>
-            gao@macbook-pro <span text-green-300>{this.getCurDirName()}</span>
+          <span className="text-yellow-200">
+            {prompt.prefix} <span className="text-green-300">{prompt.suffix}</span>
           </span>
-          <span text-red-400>{">"}</span>
+          <span className="text-red-400">{">"}</span>
         </div>
         <input
           id={`terminal-input-${id}`}
@@ -358,9 +736,9 @@ export default class Terminal extends React.Component<{}, TerminalState> {
     this.addRow(newRow);
   };
 
-  generateResultRow = (id: number, result: JSX.Element) => {
+  generateResultRow = (id: number, result: JSX.Element, key?: string) => {
     const newRow = (
-      <div key={`terminal-result-row-${id}`} break-all>
+      <div key={key ?? `terminal-result-row-${id}`} className="break-all">
         {result}
       </div>
     );
@@ -370,18 +748,11 @@ export default class Terminal extends React.Component<{}, TerminalState> {
   render() {
     return (
       <div
-        className="terminal font-terminal font-normal relative h-full bg-gray-800/90 overflow-y-scroll"
-        text="white sm"
+        className="terminal font-terminal font-normal relative h-full overflow-y-scroll bg-gray-800/90 text-sm text-white"
         onClick={() => this.focusOnInput(this.curInputTimes)}
       >
-        {this.state.rmrf && (
-          <HowDare setRMRF={(value: boolean) => this.setState({ rmrf: value })} />
-        )}
-        <div p="y-2 x-1.5">
-          <span className="text-green-300">ヽ(ˋ▽ˊ)ノ</span>: Hey, you found the terminal!
-          Type `help` to get started.
-        </div>
-        <div id="terminal-content" p="x-1.5 b-2">
+        <div className="px-1.5 py-2">{this.renderWelcome()}</div>
+        <div id="terminal-content" className="px-1.5 pb-2">
           {this.state.content}
         </div>
       </div>

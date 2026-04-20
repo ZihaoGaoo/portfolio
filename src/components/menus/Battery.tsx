@@ -17,7 +17,7 @@ export default function Battery() {
 
   return (
     <div className="hstack space-x-2">
-      <span text-xs>{(batteryState.level * 100).toFixed()}%</span>
+      <span className="text-xs">{(batteryState.level * 100).toFixed()}%</span>
       <div className="relative hstack">
         <span className="i-bi:battery text-2xl" />
         <div className={`battery-level ${color()}`} style={{ width: `${width()}rem` }} />
