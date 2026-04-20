@@ -1,761 +1,414 @@
-import React, { type JSX } from "react";
-import { terminal } from "~/configs";
-import {
-  streamAgentMessage,
-  type AgentAssistantMessageEvent,
-  type AgentResultEvent,
-  type AgentStreamEvent
-} from "~/features/agent/http";
-import type { TerminalData } from "~/types";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 
-interface TerminalState {
-  content: JSX.Element[];
+interface Message {
+  role: "user" | "assistant";
+  content: string;
 }
 
-interface ParsedInput {
-  args?: string;
-  cmd: string;
+interface Session {
+  sessionId: string;
+  environmentId: string;
+  currentAgent: string;
+  messageCount: number;
+  totalTokens: number;
 }
 
-interface TerminalCommandContext {
-  args?: string;
-  id: number;
-  rawInput: string;
-}
+const renderContent = (content: string): React.ReactNode => {
+  if (!content) return null;
+  const lines = content.split("\n");
+  const elements: React.ReactNode[] = [];
+  let inCodeBlock = false;
+  let codeLines: string[] = [];
 
-type TerminalCommand = (context: TerminalCommandContext) => Promise<void> | void;
-
-const TERMINAL_SUGGESTIONS = [
-  "ask 你主要做什么方向？",
-  "ask 你最近在做什么项目？",
-  "ls",
-  "cd about",
-  "chat"
-] as const;
-
-const createSessionId = () => {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-
-  return `session-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-};
-
-const sanitizeText = (text: string) => {
-  return text.replace(/\s+/g, " ").trim();
-};
-
-const extractNodeText = (node: React.ReactNode): string => {
-  if (node === null || node === undefined || typeof node === "boolean") {
-    return "";
-  }
-
-  if (typeof node === "string" || typeof node === "number") {
-    return String(node);
-  }
-
-  if (Array.isArray(node)) {
-    return node.map((item) => extractNodeText(item)).join("");
-  }
-
-  if (React.isValidElement<{ children?: React.ReactNode; href?: string }>(node)) {
-    const childText = extractNodeText(node.props.children);
-    const href = typeof node.props.href === "string" ? node.props.href : "";
-
-    if (href && !childText.includes(href)) {
-      return `${childText} (${href})`;
-    }
-
-    return childText;
-  }
-
-  return "";
-};
-
-const serializeTerminalEntries = (
-  entries: TerminalData[],
-  path: string[] = []
-): string[] => {
-  return entries.flatMap((item) => {
-    const nextPath = [...path, item.title];
-    const joinedPath = nextPath.join("/");
-
-    if (item.type === "folder") {
-      return [
-        `[dir] ${joinedPath}`,
-        ...serializeTerminalEntries(item.children ?? [], nextPath)
-      ];
-    }
-
-    const content = item.content ? sanitizeText(extractNodeText(item.content)) : "";
-    return [`[file] ${joinedPath}${content ? `: ${content}` : ""}`];
-  });
-};
-
-const PORTFOLIO_CONTEXT_LINES = serializeTerminalEntries(terminal);
-
-export default class Terminal extends React.Component<{}, TerminalState> {
-  private history = [] as string[];
-  private curHistory = 0;
-  private curInputTimes = 0;
-  private curDirPath = [] as any;
-  private curChildren = terminal as any;
-  private chatMode = false;
-  private chatSessionId: string | null = null;
-  private activeAbortController: AbortController | null = null;
-  private commands: Record<string, TerminalCommand>;
-
-  constructor(props: {}) {
-    super(props);
-    this.state = {
-      content: []
-    };
-    this.commands = {
-      cd: this.cd,
-      ls: this.ls,
-      cat: this.cat,
-      ask: this.ask,
-      chat: this.chat,
-      exit: this.exitChat,
-      clear: this.clear,
-      help: this.help
-    };
-  }
-
-  componentDidMount() {
-    this.generateInputRow(this.curInputTimes);
-    window.addEventListener("keydown", this.handleWindowKeyDown);
-  }
-
-  componentWillUnmount() {
-    window.removeEventListener("keydown", this.handleWindowKeyDown);
-    this.activeAbortController?.abort();
-  }
-
-  reset = () => {
-    this.setState({
-      content: []
-    });
-  };
-
-  handleWindowKeyDown = (event: KeyboardEvent) => {
-    const key = event.key.toLowerCase();
-    if ((event.ctrlKey || event.metaKey) && key === "c" && this.activeAbortController) {
-      event.preventDefault();
-      this.activeAbortController.abort();
-    }
-  };
-
-  addRow = (row: JSX.Element) => {
-    this.setState((previousState) => {
-      if (previousState.content.some((item) => item.key === row.key)) {
-        return previousState;
-      }
-
-      return {
-        content: [...previousState.content, row]
-      };
-    });
-  };
-
-  upsertRow = (row: JSX.Element) => {
-    this.setState((previousState) => {
-      const content = [...previousState.content];
-      const index = content.findIndex((item) => item.key === row.key);
-
-      if (index === -1) {
-        content.push(row);
+  lines.forEach((line, i) => {
+    if (line.startsWith("```")) {
+      if (!inCodeBlock) {
+        inCodeBlock = true;
+        codeLines = [];
       } else {
-        content[index] = row;
+        elements.push(
+          <pre
+            key={"code-" + i}
+            style={{
+              background: "rgba(0,0,0,0.5)",
+              borderRadius: "6px",
+              padding: "10px 14px",
+              margin: "6px 0",
+              overflowX: "auto",
+              fontSize: "12px",
+              lineHeight: "1.6",
+              border: "0.5px solid rgba(255,255,255,0.06)",
+              color: "#e2e8f0",
+              fontFamily: "ui-monospace,'SF Mono',Menlo,monospace"
+            }}
+          >
+            <code>{codeLines.join("\n")}</code>
+          </pre>
+        );
+        inCodeBlock = false;
+        codeLines = [];
       }
+    } else if (inCodeBlock) {
+      codeLines.push(line);
+    } else {
+      const boldRe = /\*\*(.+?)\*\*/g;
+      const codeRe = /`(.+?)`/g;
+      const linkRe = /\[(.+?)\]\((.+?)\)/g;
+      const formatted = line
+        .replace(boldRe, "<strong>$1</strong>")
+        .replace(
+          codeRe,
+          '<code style="background:rgba(255,255,255,0.1);padding:1px 5px;border-radius:3px;">$1</code>'
+        )
+        .replace(
+          linkRe,
+          '<a style="color:#60a5fa;text-decoration:underline" href="$2" target="_blank">$1</a>'
+        );
+      elements.push(
+        <div
+          key={"line-" + i}
+          style={{ lineHeight: "1.65", fontSize: "13px", color: "#d1d5db" }}
+          dangerouslySetInnerHTML={{ __html: formatted || "&nbsp;" }}
+        />
+      );
+    }
+  });
+  return elements;
+};
 
-      return {
-        content
-      };
+export default function Terminal() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [inputText, setInputText] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const historyIndex = useRef(-1);
+  const history = useRef<string[]>([]);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Raw accumulator — updated immediately on each SSE delta
+  const rawContentRef = useRef("");
+  // Display content — synced to React state at a steady cadence
+  const displayContentRef = useRef("");
+  const displayTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // In-flight flag to avoid duplicate setMessages during the same flush
+  const flushingRef = useRef(false);
+
+  useEffect(() => {
+    fetch("/api/agent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({})
+    })
+      .then((r) => r.json())
+      .then((data: Session) => {
+        setSession(data);
+      })
+      .catch(() => setError("Failed to connect to agent service"));
+  }, []);
+
+  const scrollToBottom = () => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  };
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, isLoading]);
+  const focusInput = () => {
+    inputRef.current?.focus();
+  };
+  useEffect(() => {
+    focusInput();
+  }, []);
+
+  const stopGeneration = () => {
+    abortRef.current?.abort();
+    setIsLoading(false);
+    // Flush any remaining raw content before stopping
+    displayContentRef.current = rawContentRef.current;
+    setMessages((prev) => {
+      const msgs = [...prev];
+      if (msgs.length > 0 && msgs[msgs.length - 1].role === "assistant") {
+        msgs[msgs.length - 1] = { role: "assistant", content: rawContentRef.current };
+      }
+      return msgs;
     });
   };
 
-  getCurDirName = () => {
-    if (this.curDirPath.length === 0) return "~";
-    else return this.curDirPath[this.curDirPath.length - 1];
+  // Sync display state from raw accumulator at ~30fps (every 33ms)
+  const startFlush = () => {
+    if (displayTimerRef.current) return;
+    displayTimerRef.current = setInterval(() => {
+      if (flushingRef.current || rawContentRef.current === displayContentRef.current)
+        return;
+      flushingRef.current = true;
+      const toShow = rawContentRef.current;
+      displayContentRef.current = toShow;
+      setMessages((prev) => {
+        const msgs = [...prev];
+        if (msgs.length > 0 && msgs[msgs.length - 1].role === "assistant") {
+          msgs[msgs.length - 1] = { role: "assistant", content: toShow };
+        }
+        return msgs;
+      });
+      flushingRef.current = false;
+    }, 33);
   };
 
-  getCurChildren = () => {
-    let children = terminal as any;
-    for (const name of this.curDirPath) {
-      children = children.find((item: TerminalData) => {
-        return item.title === name && item.type === "folder";
-      }).children;
+  const stopFlush = () => {
+    if (displayTimerRef.current) {
+      clearInterval(displayTimerRef.current);
+      displayTimerRef.current = null;
     }
-    return children;
+    // Final flush — show everything
+    displayContentRef.current = rawContentRef.current;
+    setMessages((prev) => {
+      const msgs = [...prev];
+      if (msgs.length > 0 && msgs[msgs.length - 1].role === "assistant") {
+        msgs[msgs.length - 1] = { role: "assistant", content: rawContentRef.current };
+      }
+      return msgs;
+    });
   };
 
-  getCurPath = () => {
-    return this.curDirPath.length === 0 ? "~" : `~/${this.curDirPath.join("/")}`;
-  };
+  const sendMessage = useCallback(async () => {
+    if (!inputText.trim() || !session || isLoading) return;
+    const userMsg = inputText.trim();
+    history.current.push(userMsg);
+    historyIndex.current = -1;
 
-  getPromptLabel = () => {
-    if (this.chatMode) {
-      return {
-        prefix: "ai@portfolio",
-        suffix: "chat"
-      };
-    }
+    const newMessages = [...messages, { role: "user" as const, content: userMsg }];
+    setMessages(newMessages);
+    setInputText("");
+    setIsLoading(true);
+    setError(null);
 
-    return {
-      prefix: "gao@macbook-pro",
-      suffix: this.getCurDirName()
-    };
-  };
+    // Reset accumulators
+    rawContentRef.current = "";
+    displayContentRef.current = "";
+    flushingRef.current = false;
+    startFlush();
 
-  parseInput = (text: string): ParsedInput => {
-    const trimmedText = text.trim();
-    if (!trimmedText) {
-      return {
-        cmd: ""
-      };
-    }
+    // Placeholder
+    setMessages((prev) => [...prev, { role: "assistant" as const, content: "" }]);
 
-    const [cmd, ...rest] = trimmedText.split(" ");
-    const args = rest.join(" ").trim();
-
-    return {
-      cmd,
-      args: args || undefined
-    };
-  };
-
-  buildAgentPrompt = (userMessage: string) => {
-    return [
-      "You are the assistant inside a simulated macOS terminal on a personal portfolio website.",
-      "Answer in concise plain text.",
-      "Ground your answer in the portfolio context below and do not invent experience that is not listed.",
-      "If the answer is not fully available, say so briefly and suggest a relevant terminal command when helpful.",
-      `Current working directory: ${this.getCurPath()}`,
-      "Portfolio context:",
-      ...PORTFOLIO_CONTEXT_LINES,
-      "",
-      "User request:",
-      userMessage
-    ].join("\n");
-  };
-
-  renderPlainTextRow = (label: string, text: string, streaming = false) => {
-    return (
-      <div className="whitespace-pre-wrap break-words">
-        <span className="text-green-300">{label}&gt; </span>
-        <span>{text}</span>
-        {streaming && <span className="animate-pulse">▋</span>}
-      </div>
-    );
-  };
-
-  renderSystemTextRow = (text: string, colorClass = "text-gray-300") => {
-    return <div className={`whitespace-pre-wrap break-words ${colorClass}`}>{text}</div>;
-  };
-
-  getChatSessionId = () => {
-    if (!this.chatSessionId) {
-      this.chatSessionId = createSessionId();
-    }
-
-    return this.chatSessionId;
-  };
-
-  runAgentTurn = async ({
-    id,
-    question,
-    sessionId
-  }: {
-    id: number;
-    question: string;
-    sessionId: string;
-  }) => {
-    const assistantRowKey = `terminal-result-row-${id}-assistant`;
     const controller = new AbortController();
-    let assistantText = "";
-    let streamedAssistant = false;
-    let metaRowCount = 0;
-
-    this.activeAbortController = controller;
-    this.upsertRow(
-      <div key={assistantRowKey} className="break-all">
-        {this.renderPlainTextRow("assistant", "", true)}
-      </div>
-    );
+    abortRef.current = controller;
 
     try {
-      await streamAgentMessage({
-        sessionId,
-        content: this.buildAgentPrompt(question),
-        signal: controller.signal,
-        onEvent: (event: AgentStreamEvent) => {
-          if (event.type === "assistant_delta") {
-            assistantText += event.delta;
-            streamedAssistant = true;
-            this.upsertRow(
-              <div key={assistantRowKey} className="break-all">
-                {this.renderPlainTextRow("assistant", assistantText, true)}
-              </div>
-            );
-            return;
-          }
-
-          if (event.type === "assistant_message") {
-            const assistantEvent = event as AgentAssistantMessageEvent;
-            if (!streamedAssistant) {
-              assistantText = assistantEvent.content;
-              this.upsertRow(
-                <div key={assistantRowKey} className="break-all">
-                  {this.renderPlainTextRow("assistant", assistantText, true)}
-                </div>
-              );
-            }
-            return;
-          }
-
-          if (event.type === "step_started") {
-            metaRowCount += 1;
-            this.addRow(
-              <div
-                key={`terminal-result-row-${id}-meta-${metaRowCount}`}
-                className="break-all"
-              >
-                {this.renderSystemTextRow(
-                  `[step ${event.step}/${event.maxSteps}]`,
-                  "text-gray-400"
-                )}
-              </div>
-            );
-            return;
-          }
-
-          if (event.type === "tool_call") {
-            metaRowCount += 1;
-            this.addRow(
-              <div
-                key={`terminal-result-row-${id}-meta-${metaRowCount}`}
-                className="break-all"
-              >
-                {this.renderSystemTextRow(`tool> ${event.toolName}`, "text-cyan-300")}
-              </div>
-            );
-            return;
-          }
-
-          if (event.type === "tool_result") {
-            metaRowCount += 1;
-            const resultText = event.success
-              ? `tool-result> ${event.content}`
-              : `tool-error> ${event.error ?? "Unknown error"}`;
-            this.addRow(
-              <div
-                key={`terminal-result-row-${id}-meta-${metaRowCount}`}
-                className="break-all"
-              >
-                {this.renderSystemTextRow(
-                  resultText,
-                  event.success ? "text-gray-300" : "text-red-300"
-                )}
-              </div>
-            );
-            return;
-          }
-
-          if (event.type === "result") {
-            const resultEvent = event as AgentResultEvent;
-            if (!assistantText) {
-              assistantText = resultEvent.assistantMessage;
-            }
-            return;
-          }
-
-          if (event.type === "error") {
-            throw new Error(event.message);
-          }
-        }
+      const res = await fetch("/api/agent/" + session.sessionId + "/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: userMsg }),
+        signal: controller.signal
       });
 
-      const finalText = assistantText || "No response received.";
-      this.upsertRow(
-        <div key={assistantRowKey} className="break-all">
-          {this.renderPlainTextRow("assistant", finalText)}
-        </div>
-      );
-    } catch (error) {
-      if (controller.signal.aborted) {
-        this.upsertRow(
-          <div key={assistantRowKey} className="break-all">
-            {this.renderSystemTextRow("^C", "text-yellow-200")}
-          </div>
-        );
-        return;
+      if (!res.ok) throw new Error("Request failed: " + res.status);
+      if (!res.body) throw new Error("No response body");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let rawBuf = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        rawBuf += decoder.decode(value, { stream: true });
+        const lines = rawBuf.split("\n");
+        rawBuf = lines.pop() ?? "";
+
+        let eventType = "";
+        let eventData = "";
+
+        for (const rawLine of lines) {
+          const line = rawLine.trimEnd();
+          if (line === "") {
+            if (eventType === "assistant_delta" && eventData) {
+              try {
+                const parsed = JSON.parse(eventData);
+                if (parsed.delta) rawContentRef.current += parsed.delta;
+              } catch {}
+              eventType = "";
+              eventData = "";
+            }
+          } else if (line.startsWith("event:")) {
+            eventType = line.slice(6).trim();
+          } else if (line.startsWith("data:")) {
+            eventData = line.slice(5);
+          }
+        }
       }
 
-      const message = error instanceof Error ? error.message : String(error);
-      this.upsertRow(
-        <div key={assistantRowKey} className="break-all">
-          {this.renderSystemTextRow(`agent error: ${message}`, "text-red-300")}
-        </div>
-      );
+      stopFlush();
+    } catch (err) {
+      stopFlush();
+      if ((err as Error).name !== "AbortError") {
+        setError((err as Error).message);
+      }
     } finally {
-      if (this.activeAbortController === controller) {
-        this.activeAbortController = null;
-      }
+      setIsLoading(false);
+      abortRef.current = null;
     }
-  };
+  }, [inputText, session, isLoading, messages]);
 
-  // move into a specified folder
-  cd = ({ args, id }: TerminalCommandContext) => {
-    if (args === undefined || args === "~") {
-      // move to root
-      this.curDirPath = [];
-      this.curChildren = terminal;
-    } else if (args === ".") {
-      // stay in the current folder
-      return;
-    } else if (args === "..") {
-      // move to parent folder
-      if (this.curDirPath.length === 0) return;
-      this.curDirPath.pop();
-      this.curChildren = this.getCurChildren();
-    } else {
-      // move to certain child folder
-      const target = this.curChildren.find((item: TerminalData) => {
-        return item.title === args && item.type === "folder";
-      });
-      if (target === undefined) {
-        this.generateResultRow(
-          id,
-          <span>{`cd: no such file or directory: ${args}`}</span>
-        );
-      } else {
-        this.curChildren = target.children;
-        this.curDirPath.push(target.title);
-      }
-    }
-  };
-
-  // display content of a specified folder
-  ls = ({ id }: TerminalCommandContext) => {
-    const result = [];
-    for (const item of this.curChildren) {
-      result.push(
-        <span
-          key={`terminal-result-ls-${id}-${item.id}`}
-          className={`${item.type === "file" ? "text-white" : "text-purple-300"}`}
-        >
-          {item.title}
-        </span>
-      );
-    }
-    this.generateResultRow(id, <div className="grid grid-cols-4 w-full">{result}</div>);
-  };
-
-  // display content of a specified file
-  cat = ({ args, id }: TerminalCommandContext) => {
-    const file = this.curChildren.find((item: TerminalData) => {
-      return item.title === args && item.type === "file";
-    });
-
-    if (file === undefined) {
-      this.generateResultRow(
-        id,
-        <span>{`cat: ${args}: No such file or directory`}</span>
-      );
-    } else {
-      this.generateResultRow(id, <span>{file.content}</span>);
-    }
-  };
-
-  // clear terminal
-  clear = () => {
-    this.reset();
-  };
-
-  ask = async ({ args, id, rawInput }: TerminalCommandContext) => {
-    const question = rawInput.replace(/^ask\s*/, "").trim() || args;
-
-    if (!question) {
-      this.generateResultRow(
-        id,
-        this.renderSystemTextRow("usage: ask <question>", "text-yellow-200")
-      );
-      return;
-    }
-
-    await this.runAgentTurn({
-      id,
-      question,
-      sessionId: createSessionId()
-    });
-  };
-
-  chat = ({ id }: TerminalCommandContext) => {
-    this.chatMode = true;
-    this.getChatSessionId();
-    this.generateResultRow(
-      id,
-      this.renderSystemTextRow(
-        "Chat mode enabled. Type anything to talk with the assistant, or `exit` to leave chat mode.",
-        "text-cyan-300"
-      )
-    );
-  };
-
-  exitChat = ({ id }: TerminalCommandContext) => {
-    if (!this.chatMode) {
-      this.generateResultRow(
-        id,
-        this.renderSystemTextRow("exit: chat mode is not active.", "text-yellow-200")
-      );
-      return;
-    }
-
-    this.chatMode = false;
-    this.chatSessionId = null;
-    this.generateResultRow(
-      id,
-      this.renderSystemTextRow("Chat mode closed.", "text-cyan-300")
-    );
-  };
-
-  help = ({ id }: TerminalCommandContext) => {
-    const help = (
-      <ul className="list-disc ml-6 pb-1.5">
-        <li>
-          <span className="text-red-400">cat {"<file>"}</span> - See the content of{" "}
-          {"<file>"}
-        </li>
-        <li>
-          <span className="text-red-400">cd {"<dir>"}</span> - Move into
-          {" <dir>"}, "cd .." to move to the parent directory, "cd" or "cd ~" to return to
-          root
-        </li>
-        <li>
-          <span className="text-red-400">ls</span> - See files and directories in the
-          current directory
-        </li>
-        <li>
-          <span className="text-red-400">clear</span> - Clear the screen
-        </li>
-        <li>
-          <span className="text-red-400">help</span> - Display this help menu
-        </li>
-        <li>
-          <span className="text-red-400">ask {"<question>"}</span> - Ask the AI assistant
-          a single question about this portfolio
-        </li>
-        <li>
-          <span className="text-red-400">chat</span> - Enter continuous chat mode with the
-          AI assistant
-        </li>
-        <li>
-          <span className="text-red-400">exit</span> - Leave chat mode
-        </li>
-        <li>
-          press <span className="text-red-400">up arrow / down arrow</span> - Select
-          history commands
-        </li>
-        <li>
-          press <span className="text-red-400">tab</span> - Auto complete
-        </li>
-        <li>
-          press <span className="text-red-400">ctrl + c</span> - Cancel an in-flight AI
-          response
-        </li>
-      </ul>
-    );
-    this.generateResultRow(id, help);
-  };
-
-  autoComplete = (text: string) => {
-    if (text === "") return text;
-
-    const { cmd, args } = this.parseInput(text);
-
-    let result = text;
-
-    if (args === undefined) {
-      const guess = Object.keys(this.commands).find((item) => {
-        return item.substring(0, cmd.length) === cmd;
-      });
-      if (guess !== undefined) result = guess;
-    } else if (cmd === "cd" || cmd === "cat") {
-      const type = cmd === "cd" ? "folder" : "file";
-      const guess = this.curChildren.find((item: TerminalData) => {
-        return item.type === type && item.title.substring(0, args.length) === args;
-      });
-      if (guess !== undefined) result = cmd + " " + guess.title;
-    }
-    return result;
-  };
-
-  keyPress = async (e: React.KeyboardEvent) => {
-    const keyCode = e.key;
-    const inputElement = document.querySelector(
-      `#terminal-input-${this.curInputTimes}`
-    ) as HTMLInputElement;
-    const inputText = inputElement.value.trim();
-    const { cmd, args } = this.parseInput(inputText);
-
-    if (keyCode === "Enter") {
-      if (!inputText) {
-        return;
-      }
-
-      // ----------- run command -----------
-      this.history.push(inputText);
-      const currentInputId = this.curInputTimes;
-
-      // we can't edit the past input
-      inputElement.setAttribute("readonly", "true");
-
-      try {
-        if (cmd && Object.keys(this.commands).includes(cmd)) {
-          await this.commands[cmd]({
-            id: currentInputId,
-            args,
-            rawInput: inputText
-          });
-        } else if (this.chatMode) {
-          await this.runAgentTurn({
-            id: currentInputId,
-            question: inputText,
-            sessionId: this.getChatSessionId()
-          });
-        } else {
-          this.generateResultRow(
-            currentInputId,
-            <span>{`zsh: command not found: ${cmd}. Try: ask "${inputText}"`}</span>
-          );
-        }
-      } finally {
-        // point to the last history command
-        this.curHistory = this.history.length;
-
-        // generate new input row
-        this.curInputTimes += 1;
-        this.generateInputRow(this.curInputTimes);
-      }
-    } else if (keyCode === "ArrowUp") {
-      // ----------- previous history command -----------
-      if (this.history.length > 0) {
-        if (this.curHistory > 0) this.curHistory--;
-        const historyCommand = this.history[this.curHistory];
-        inputElement.value = historyCommand;
-      }
-    } else if (keyCode === "ArrowDown") {
-      // ----------- next history command -----------
-      if (this.history.length > 0) {
-        if (this.curHistory < this.history.length) this.curHistory++;
-        if (this.curHistory === this.history.length) inputElement.value = "";
-        else {
-          const historyCommand = this.history[this.curHistory];
-          inputElement.value = historyCommand;
-        }
-      }
-    } else if (keyCode === "Tab") {
-      // ----------- auto complete -----------
-      inputElement.value = this.autoComplete(inputText);
-      // prevent tab outside the terminal
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && !isLoading) {
+      sendMessage();
+    } else if (e.key === "ArrowUp") {
       e.preventDefault();
+      if (historyIndex.current < history.current.length - 1) {
+        historyIndex.current++;
+        setInputText(history.current[history.current.length - 1 - historyIndex.current]);
+      }
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (historyIndex.current > 0) {
+        historyIndex.current--;
+        setInputText(history.current[history.current.length - 1 - historyIndex.current]);
+      } else if (historyIndex.current === 0) {
+        historyIndex.current = -1;
+        setInputText("");
+      }
     }
   };
 
-  focusOnInput = (id: number) => {
-    const input = document.querySelector(
-      `#terminal-input-${id}`
-    ) as HTMLInputElement | null;
-    input?.focus();
-  };
+  return (
+    <div
+      className="relative h-full flex flex-col"
+      style={{
+        background: "#1e1e1e",
+        fontFamily: "ui-monospace,'SF Mono',Menlo,monospace"
+      }}
+      onClick={focusInput}
+    >
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
+        {messages.length === 0 && (
+          <div
+            style={{
+              color: "#6b7280",
+              fontSize: "11px",
+              fontFamily: "ui-monospace,monospace"
+            }}
+          >
+            {"┌──────────────────────────────────────────────────┐"}
+            <br />
+            {"│  AI Terminal · mini-agent · deepseek-chat     │"}
+            <br />
+            {"│  Enter to send · ↑↓ history                   │"}
+            <br />
+            {"└──────────────────────────────────────────────────┘"}
+          </div>
+        )}
 
-  insertCommand = (command: string) => {
-    const input = document.querySelector(
-      `#terminal-input-${this.curInputTimes}`
-    ) as HTMLInputElement | null;
+        {messages.map((msg, i) => (
+          <div key={i}>
+            {msg.role === "user" ? (
+              <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
+                <span style={{ color: "#60a5fa", fontSize: "13px", flexShrink: 0 }}>
+                  ❯
+                </span>
+                <span style={{ color: "#93c5fd", fontSize: "13px" }}>{msg.content}</span>
+              </div>
+            ) : (
+              <div
+                style={{
+                  paddingLeft: "20px",
+                  borderLeft: "2px solid rgba(74,222,128,0.15)",
+                  marginLeft: "6px",
+                  padding: "4px 0 4px 14px"
+                }}
+              >
+                {renderContent(msg.content)}
+                {i === messages.length - 1 && isLoading && (
+                  <span style={{ color: "#6b7280", animation: "blink 1.2s infinite" }}>
+                    ▋
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
 
-    if (!input || input.hasAttribute("readonly")) {
-      return;
-    }
+        {isLoading && messages.length === 0 && (
+          <div style={{ color: "#6b7280", fontSize: "12px", paddingLeft: "20px" }}>
+            <span style={{ display: "inline-block", animation: "blink 1.2s infinite" }}>
+              ◦
+            </span>
+            {" thinking..."}
+          </div>
+        )}
 
-    input.value = command;
-    input.focus();
-    input.setSelectionRange(command.length, command.length);
-  };
-
-  renderWelcome = () => {
-    return (
-      <div className="space-y-2 border-b border-white/8 pb-3">
-        <div>
-          <span className="text-green-300">ヽ(ˋ▽ˊ)ノ</span> Ask about research, projects,
-          or contact info right from the terminal.
-        </div>
-        <div className="text-gray-300">
-          Type a command manually, or click an example below to insert it into the prompt.
-        </div>
-        <div className="flex flex-wrap gap-2 pt-1">
-          {TERMINAL_SUGGESTIONS.map((command) => (
-            <button
-              key={command}
-              type="button"
-              className="rounded border border-white/10 bg-white/5 px-2 py-1 text-left transition-colors hover:bg-white/10"
-              onClick={(event) => {
-                event.stopPropagation();
-                this.insertCommand(command);
-              }}
-            >
-              <span className="text-red-300">$</span>{" "}
-              <span className="text-yellow-100">{command}</span>
-            </button>
-          ))}
-        </div>
-        <div className="text-gray-400">Type `help` to see the full command list.</div>
+        {error && (
+          <div
+            style={{
+              color: "#f87171",
+              fontSize: "12px",
+              padding: "8px 12px",
+              background: "rgba(239,68,68,0.08)",
+              borderRadius: "6px",
+              border: "0.5px solid rgba(239,68,68,0.2)"
+            }}
+          >
+            Error: {error}
+          </div>
+        )}
       </div>
-    );
-  };
 
-  generateInputRow = (id: number) => {
-    const prompt = this.getPromptLabel();
-    const newRow = (
-      <div key={`terminal-input-row-${id}`} className="flex">
-        <div className="w-max hstack space-x-1.5">
-          <span className="text-yellow-200">
-            {prompt.prefix} <span className="text-green-300">{prompt.suffix}</span>
-          </span>
-          <span className="text-red-400">{">"}</span>
-        </div>
-        <input
-          id={`terminal-input-${id}`}
-          className="flex-1 px-1 text-white outline-none bg-transparent"
-          onKeyDown={this.keyPress}
-          autoFocus={true}
-        />
-      </div>
-    );
-    this.addRow(newRow);
-  };
-
-  generateResultRow = (id: number, result: JSX.Element, key?: string) => {
-    const newRow = (
-      <div key={key ?? `terminal-result-row-${id}`} className="break-all">
-        {result}
-      </div>
-    );
-    this.addRow(newRow);
-  };
-
-  render() {
-    return (
       <div
-        className="terminal font-terminal font-normal relative h-full overflow-y-scroll bg-gray-800/90 text-sm text-white"
-        onClick={() => this.focusOnInput(this.curInputTimes)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+          padding: "10px 14px",
+          borderTop: "0.5px solid rgba(255,255,255,0.06)",
+          background: "#161616"
+        }}
       >
-        <div className="px-1.5 py-2">{this.renderWelcome()}</div>
-        <div id="terminal-content" className="px-1.5 pb-2">
-          {this.state.content}
-        </div>
+        <span style={{ color: "#fbbf24", fontSize: "12px" }}>zihao</span>
+        <span style={{ color: "#6b7280", fontSize: "12px" }}>@</span>
+        <span style={{ color: "#34d399", fontSize: "12px" }}>macbook-pro</span>
+        <span style={{ color: "#6b7280", fontSize: "12px" }}>·</span>
+        <span style={{ color: "#60a5fa", fontSize: "12px" }}>~</span>
+        <span style={{ color: "#f87171", fontSize: "13px" }}>›</span>
+        <input
+          ref={inputRef}
+          type="text"
+          style={{
+            flex: 1,
+            background: "transparent",
+            color: "white",
+            fontSize: "13px",
+            outline: "none",
+            fontFamily: "inherit",
+            caretColor: "#60a5fa"
+          }}
+          placeholder={isLoading ? "waiting..." : "ask something..."}
+          value={inputText}
+          onChange={(e) => setInputText(e.target.value)}
+          onKeyDown={handleKeyDown}
+          disabled={isLoading}
+          autoFocus
+        />
+        {isLoading && (
+          <button
+            onClick={stopGeneration}
+            style={{
+              background: "rgba(255,255,255,0.08)",
+              border: "0.5px solid rgba(255,255,255,0.1)",
+              borderRadius: "5px",
+              color: "rgba(255,255,255,0.5)",
+              fontSize: "11px",
+              padding: "2px 8px",
+              cursor: "pointer"
+            }}
+          >
+            ⏹ stop
+          </button>
+        )}
       </div>
-    );
-  }
+
+      <style>{`@keyframes blink { 0%,100%{opacity:1}50%{opacity:0} }`}</style>
+    </div>
+  );
 }
