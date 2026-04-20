@@ -7,20 +7,44 @@
 /* --------- spotlight --------- */
 
 .spotlight {
-  @apply fixed z-20 h-max top-1/4 -mt-16 w-165 -ml-82.5 left-1/2 rounded-lg backdrop-blur-2xl shadow-2xl shadow-black/40 bg-c-100/80 border border-menu;
+  @apply fixed left-1/2 top-22 z-20 h-max w-[min(56rem,calc(100vw-2.5rem))] -translate-x-1/2 overflow-hidden rounded-2xl border border-menu bg-c-100/84 shadow-2xl shadow-black/40 backdrop-blur-2xl;
 }
 
-.spotlight input::placeholder {
-  @apply text-c-black/40;
+.spotlight .spotlight-search {
+  @apply border-b border-c-300/80 bg-white/28 backdrop-blur-xl;
+}
+
+.spotlight .spotlight-input {
+  @apply font-normal tracking-tight appearance-none;
+}
+
+.spotlight .spotlight-input::placeholder {
+  @apply text-c-black/45;
 }
 
 .spotlight .spotlight-type {
-  @apply relative hstack pl-2.5 py-2 text-xs leading-none text-c-500 font-medium;
+  @apply relative hstack px-2 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] leading-none text-c-500;
+}
+
+.spotlight .spotlight-list li {
+  @apply mb-0.5 h-9 items-center rounded-md px-1.5 text-[13px] transition-colors;
 }
 
 @media (max-width: 639px) {
   .spotlight {
-    @apply w-full ml-0 left-0;
+    @apply top-4 w-[calc(100vw-1rem)];
+  }
+
+  .spotlight .spotlight-search {
+    @apply h-15;
+  }
+
+  .spotlight .spotlight-results {
+    @apply block h-auto max-h-[60vh];
+  }
+
+  .spotlight .spotlight-list {
+    @apply w-full border-r-0;
   }
 }
 

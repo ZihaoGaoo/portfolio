@@ -256,27 +256,23 @@ export default function Spotlight({
       ref={spotlightRef}
     >
       <div
-        className="w-full h-12 sm:h-14 rounded-lg bg-transparent"
-        grid="~ cols-8 sm:cols-11"
+        className="spotlight-search grid h-16 w-full grid-cols-[56px_minmax(0,1fr)_auto] items-center gap-2 px-3 sm:h-18 sm:px-4"
       >
-        <div className="col-start-1 col-span-1 flex-center">
-          <span className="i-bx:search ml-1 text-c-600 text-[28px]" />
+        <div className="flex-center">
+          <span className="i-bx:search text-c-600 text-[30px] sm:text-[34px]" />
         </div>
         <input
           ref={inputRef}
-          className={`col-start-2 col-span-7 ${
-            curDetails ? "sm:col-span-9" : "sm:col-span-10"
-          } bg-transparent no-outline px-1`}
-          text="c-black xl sm:2xl"
+          className="spotlight-input h-full min-w-0 w-full border-none bg-transparent px-1 text-[2rem] leading-none text-c-black outline-none sm:text-[2.5rem]"
           placeholder="Spotlight Search"
           value={searchText}
           onChange={handleInputChange}
           autoFocus={true}
         />
         {curDetails && (
-          <div className="hidden sm:flex col-start-11 col-span-1 flex-center">
+          <div className="hidden sm:flex flex-center">
             <img
-              w-8
+              className="size-9 rounded-xl object-cover"
               src={curDetails.img}
               alt={curDetails.title}
               title={curDetails.title}
@@ -285,35 +281,35 @@ export default function Spotlight({
         )}
       </div>
       {searchText !== "" && (
-        <div flex h-85 bg-transparent border="t menu">
-          <div w="32 sm:72" border="r menu" p="x-2.5" overflow-y-scroll>
+        <div className="spotlight-results flex h-85 border-t border-menu bg-black/2">
+          <div className="spotlight-list w-36 overflow-y-auto px-2.5 py-2 sm:w-72" border="r menu">
             {appList}
           </div>
           {curDetails && (
             <div className="flex-1 vstack">
-              <div className="w-4/5 h-56" flex="center col" border="b menu">
+              <div className="mx-auto flex h-56 w-4/5 flex-col items-center justify-center border-b border-menu px-6 text-center">
                 <img
-                  w-32
+                  className="size-28 rounded-[28px] object-cover shadow-lg shadow-black/12"
                   src={curDetails.img}
                   alt={curDetails.title}
                   title={curDetails.title}
                 />
-                <div m="t-4" text="xl c-black">
+                <div className="mt-4 text-xl font-medium text-c-black">
                   {curDetails.title}
                 </div>
-                <div text="xs c-500">
+                <div className="mt-1 text-xs text-c-500">
                   {`Version: ${getRandom(0, 99)}.${getRandom(0, 999)}`}
                 </div>
               </div>
-              <div className="flex-1 hstack text-xs">
-                <div w="1/2" text="right c-500">
+              <div className="flex flex-1 items-center px-6 text-xs">
+                <div className="w-1/2 space-y-2 text-right text-c-500">
                   <div>Kind</div>
                   <div>Size</div>
                   <div>Created</div>
                   <div>Modified</div>
                   <div>Last opened</div>
                 </div>
-                <div className="flex-1 pl-2 text-c-black">
+                <div className="flex-1 space-y-2 pl-3 text-c-black">
                   <div>{curDetails.type === "app" ? "Application" : "Portfolio"}</div>
                   <div>{`${getRandom(0, 999)} G`}</div>
                   <div>{getRandomDate()}</div>
